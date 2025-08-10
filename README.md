@@ -1,2 +1,0 @@
-# SOVIETCY
-inspired by fsociety
