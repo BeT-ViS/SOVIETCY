@@ -1,0 +1,78 @@
+# .github/workflows/main.yml
+
+name: Sovietcy CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest # Using a Linux environment for consistency with common usage
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9' # Specify a Python version compatible with Textual, Scapy, etc. (e.g., 3.8, 3.9, 3.10)
+
+    - name: Install system dependencies for Scapy (optional, but good for robust CI)
+      # Scapy often benefits from libpcap-dev for full functionality
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpcap-dev
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install the package itself in editable mode, which also handles setup.py dependencies
+        pip install -e .
+
+    - name: Run basic application launch test
+      # This test attempts to run the main sovietcy command
+      # and immediately sends a 'q' (quit) action to exit gracefully.
+      # This verifies that the Textual app can start without crashing due to imports or initial setup.
+      # It does NOT test network scanning or phishing capabilities due to CI environment limitations.
+      run: |
+        echo "Attempting to launch and quit sovietcy to check for basic startup errors..."
+        # Using `timeout` to ensure the command doesn't hang indefinitely.
+        # `echo -e "q\n"` simulates typing 'q' and pressing Enter to quit the Textual app.
+        # `stdbuf -oL` prevents buffering, making output appear immediately.
+        # `2>&1 | tee sovietcy_startup.log` redirects stderr to stdout and saves to a log.
+        # The `timeout` command ensures it doesn't run longer than 10 seconds.
+        timeout 10s bash -c "echo -e \"q\n\" | stdbuf -oL sovietcy 2>&1 | tee sovietcy_startup.log" || true
+
+        # Check if "Exiting Sovietcy" (our explicit quit message) is in the log
+        if grep -q "Exiting Sovietcy" sovietcy_startup.log; then
+          echo "Sovietcy launched and exited successfully."
+        else
+          echo "Sovietcy did NOT exit successfully or encountered a startup error."
+          echo "Full log:"
+          cat sovietcy_startup.log
+          exit 1 # Fail the step if not exited successfully
+        fi
+      # This step should be run by a non-root user in CI to check the UI part.
+      # Direct `sudo sovietcy` would be problematic in CI for security and permissions.
+      # Network functionality would need dedicated integration tests with mock networking,
+      # which is beyond the scope of a basic CI for a tool like this.
+
+    - name: Verify package installation
+      # Simple check to ensure the 'sovietcy' command is callable
+      run: |
+        sovietcy --version || true # Some apps have --version, ours doesn't yet. Just calling it.
+        which sovietcy
+
+    - name: Static code analysis (optional but recommended)
+      # Add linters like flake8 or black to maintain code quality
+      run: |
+        pip install flake8
+        flake8 sovietcy/
